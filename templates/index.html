@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SQL Safety Checker Live Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+body{font-family:'Roboto',sans-serif;margin:0;background:#f5f7fa}
+header{text-align:center;padding:25px 0;background:linear-gradient(90deg,#007bff,#00c6ff);color:#fff;box-shadow:0 4px 12px rgba(0,0,0,0.1)}
+header h1{margin:0;font-size:28px}header p{margin:5px 0 0 0;font-size:16px}
+.container{display:flex;flex-wrap:wrap;max-width:1300px;margin:20px auto;gap:20px;padding:0 20px 50px}
+.left-panel{flex:2;min-width:380px}.right-panel{flex:1;min-width:300px;max-height:700px;overflow-y:auto}
+.stats{display:flex;flex-wrap:wrap;gap:15px;margin-bottom:20px;justify-content:center}
+.stat-card{flex:1 1 120px;min-width:100px;background:#fff;padding:15px;border-radius:12px;text-align:center;box-shadow:0 6px 20px rgba(0,0,0,0.08);transition:0.3s}
+.stat-card:hover{transform:translateY(-3px)}
+.stat-card h2{margin:5px 0;font-size:24px}.stat-card p{margin:0;color:#555}
+form{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+input[type=text]{flex:1 1 60%;padding:12px 15px;border-radius:10px;border:1px solid #ccc;font-size:16px}
+input[type=text]:focus{border-color:#007bff;box-shadow:0 0 8px rgba(0,123,255,0.3);outline:none}
+button{padding:12px 18px;border-radius:10px;border:none;background:#007bff;color:#fff;cursor:pointer;transition:0.3s}
+button:hover{background:#0056b3;transform:scale(1.05)}
+.chart-container{background:#fff;border-radius:12px;padding:15px;margin-bottom:20px;box-shadow:0 6px 20px rgba(0,0,0,0.08)}
+canvas{max-width:100%!important}
+.card{padding:15px;border-radius:12px;box-shadow:0 4px 15px rgba(0,0,0,0.08);margin-bottom:15px;position:relative;overflow:hidden;cursor:pointer;transform:translateY(20px);opacity:0;transition:all 0.5s ease}
+.card.show{opacity:1;transform:translateY(0)}
+.safe{background:#e6f4ea;border-left:5px solid #28a745;color:#155724}
+.attack{background:#fdecea;border-left:5px solid #dc3545;color:#721c24}
+.card p{margin:5px 0;word-break:break-word}.card .query-text{max-height:40px;overflow:hidden;transition:max-height 0.3s ease}
+.card.expanded .query-text{max-height:200px}
+.progress-container{background:rgba(0,0,0,0.05);border-radius:20px;height:12px;width:100%;margin-top:8px;overflow:hidden}
+.progress-bar{height:100%;width:0%;border-radius:20px;transition:width 1s ease}
+.safe .progress-bar{background:#28a745}.attack .progress-bar{background:#dc3545}
+.card .btn-group{margin-top:8px;display:flex;gap:10px}.card .btn{padding:5px 10px;border:none;border-radius:6px;cursor:pointer;transition:0.3s;font-size:12px}
+.card .btn-copy{background:#17a2b8;color:#fff}.card .btn-copy:hover{background:#117a8b}
+.card .btn-delete{background:#dc3545;color:#fff}.card .btn-delete:hover{background:#a71d2a}
+.toast{position:fixed;top:20px;right:20px;background:#dc3545;color:#fff;padding:12px 20px;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,0.2);opacity:0;transform:translateY(-20px);transition:all 0.5s;z-index:1000}.toast.show{opacity:1;transform:translateY(0)}
+.export-btns{margin-bottom:20px;display:flex;gap:10px;flex-wrap:wrap}
+.export-btns button{padding:8px 14px;font-size:14px;border-radius:8px}
+/* Filter/Search Panel */
+.filter-panel{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;align-items:center}
+.filter-panel select,input[type=search]{padding:8px 10px;border-radius:8px;border:1px solid #ccc}
+</style>
+</head>
+<body>
+<header>
+<h1>SQL Safety Checker Live Dashboard</h1>
+<p>Real-time analytics with query metrics & alerts</p>
+</header>
+
+<div class="container">
+<div class="left-panel">
+<div class="stats">
+<div class="stat-card"><h2 id="totalQueries">0</h2><p>Total Queries</p></div>
+<div class="stat-card"><h2 id="safeCount">0</h2><p>Safe Queries</p></div>
+<div class="stat-card"><h2 id="attackCount">0</h2><p>Attack Queries</p></div>
+<div class="stat-card"><h2 id="highRiskCount">0</h2><p>High-Risk Queries</p></div>
+<div class="stat-card"><h2 id="avgScore">0.00</h2><p>Average Score</p></div>
+</div>
+
+<form id="queryForm">
+<input type="text" id="query" placeholder="Enter SQL query here" required/>
+<button type="submit">Check Query</button>
+</form>
+
+<div class="filter-panel">
+<select id="filterLabel">
+<option value="ALL">All</option>
+<option value="SAFE">SAFE</option>
+<option value="ATTACK">ATTACK</option>
+<option value="HIGH">High-Risk</option>
+</select>
+<input type="search" id="searchQuery" placeholder="Search queries..."/>
+</div>
+
+<div class="chart-container"><canvas id="pieChart" height="180"></canvas></div>
+<div class="chart-container"><canvas id="barChart" height="180"></canvas></div>
+<div class="chart-container"><canvas id="lineChart" height="180"></canvas></div>
+<div class="export-btns">
+<button id="exportCSV">Export History CSV</button>
+<button id="clearHistory">Clear History</button>
+</div>
+</div>
+
+<div class="right-panel" id="result"></div>
+</div>
+
+<div id="toast" class="toast"></div>
+<audio id="alertSound" src="https://www.soundjay.com/buttons/beep-07.wav"></audio>
+
+<script>
+let total=0,safe=0,attack=0,highRisk=0,sumScore=0;
+const history=[];
+
+const totalEl=document.getElementById('totalQueries');
+const safeEl=document.getElementById('safeCount');
+const attackEl=document.getElementById('attackCount');
+const highRiskEl=document.getElementById('highRiskCount');
+const avgScoreEl=document.getElementById('avgScore');
+const resultDiv=document.getElementById('result');
+const toast=document.getElementById('toast');
+const alertSound=document.getElementById('alertSound');
+
+const pieCtx=document.getElementById('pieChart').getContext('2d');
+const pieChart=new Chart(pieCtx,{type:'doughnut',data:{labels:['SAFE','ATTACK'],datasets:[{data:[safe,attack],backgroundColor:['#28a745','#dc3545']}]},options:{responsive:true,plugins:{legend:{position:'bottom'}}}});
+const barCtx=document.getElementById('barChart').getContext('2d');
+const barChart=new Chart(barCtx,{type:'bar',data:{labels:[],datasets:[{label:'Query Score',data:[],backgroundColor:[],borderRadius:5}]},options:{responsive:true,scales:{y:{beginAtZero:true,max:1}}}});
+const lineCtx=document.getElementById('lineChart').getContext('2d');
+const lineChart=new Chart(lineCtx,{type:'line',data:{labels:[],datasets:[{label:'Score over Time',data:[],borderColor:'#007bff',tension:0.3,fill:false}]} ,options:{responsive:true,scales:{y:{beginAtZero:true,max:1}}}});
+
+
+document.getElementById('queryForm').addEventListener('submit', async(e)=>{
+    e.preventDefault();
+    const query=document.getElementById('query').value;
+    await processQuery(query);
+    document.getElementById('queryForm').reset();
+});
+
+
+document.getElementById('filterLabel').addEventListener('change',filterCards);
+document.getElementById('searchQuery').addEventListener('input',filterCards);
+
+function filterCards(){
+    const filter=document.getElementById('filterLabel').value;
+    const search=document.getElementById('searchQuery').value.toLowerCase();
+    document.querySelectorAll('.card').forEach(card=>{
+        let text=card.querySelector('.query-text').innerText.toLowerCase();
+        let label=card.dataset.label;
+        let show=(filter==='ALL'||label===filter|| (filter==='HIGH' && label==='HIGH'));
+        if(text.includes(search) && show) card.style.display='block'; else card.style.display='none';
+    });
+}
+
+
+function showToast(msg,error=false){
+    toast.innerText=msg; toast.style.background=error?'#dc3545':'#28a745';
+    toast.classList.add('show'); setTimeout(()=>toast.classList.remove('show'),3000);
+    if(error) alertSound.play();
+}
+
+
+async function processQuery(query){
+    try{
+        const response=await fetch('/analyze',{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({query})
+        });
+        const data=await response.json();
+
+        total++; if(data.label==='SAFE') safe++; else attack++;
+        if(data.score>=0.8) highRisk++;
+        sumScore+=data.score;
+
+        totalEl.innerText=total;
+        safeEl.innerText=safe;
+        attackEl.innerText=attack;
+        highRiskEl.innerText=highRisk;
+        avgScoreEl.innerText=(sumScore/total).toFixed(2);
+
+        pieChart.data.datasets[0].data=[safe,attack]; pieChart.update();
+        if(barChart.data.labels.length>=10){ barChart.data.labels.shift(); barChart.data.datasets[0].data.shift(); barChart.data.datasets[0].backgroundColor.shift();}
+        barChart.data.labels.push(data.query.substring(0,15)+'...'); barChart.data.datasets[0].data.push(data.score); barChart.data.datasets[0].backgroundColor.push(data.label==='SAFE'?'#28a745':'#dc3545'); barChart.update();
+        lineChart.data.labels.push(total); lineChart.data.datasets[0].data.push(data.score); lineChart.update();
+
+        // Card
+        const card=document.createElement('div');
+        card.className='card show';
+        let labelClass=data.score>=0.8 && data.label==='ATTACK'?'attack':(data.label==='SAFE'?'safe':'attack');
+        card.classList.add(labelClass);
+        card.dataset.label=(data.score>=0.8 && data.label==='ATTACK')?'HIGH':data.label;
+        card.innerHTML=`
+            <p class="query-text"><strong>Query:</strong> ${data.query}</p>
+            <div class="progress-container"><div class="progress-bar" style="width:0%"></div></div>
+            <p><strong>Label:</strong> ${data.label}</p>
+            <p><strong>Score:</strong> ${data.score.toFixed(2)}</p>
+            <p><strong>Action:</strong> ${data.action}</p>
+            <p><strong>Metrics:</strong> Keywords:${data.n_keywords||0}, Quotes:${data.n_quotes||0}, Semicolons:${data.n_semicolons||0}, Tokens:${data.n_tokens||0}</p>
+            <div class="btn-group">
+                <button class="btn btn-copy">Copy</button>
+                <button class="btn btn-delete">Delete</button>
+            </div>
+        `;
+        resultDiv.prepend(card);
+        setTimeout(()=>card.querySelector('.progress-bar').style.width=`${(data.score*100).toFixed(0)}%`,200);
+        card.addEventListener('click',()=>card.classList.toggle('expanded'));
+        card.querySelector('.btn-copy').addEventListener('click',(e)=>{ e.stopPropagation(); navigator.clipboard.writeText(data.query); showToast('Query copied!'); });
+        card.querySelector('.btn-delete').addEventListener('click',(e)=>{ e.stopPropagation(); card.remove(); showToast('Query deleted!'); history.splice(history.indexOf(data),1); updateStatsCharts(); });
+        if(data.score>=0.8 && data.label==='ATTACK') showToast('High-risk ATTACK query detected!',true);
+
+        history.push(data);
+        filterCards();
+    }catch(err){showToast('Request failed!','error');}
+}
+
+
+function updateStatsCharts(){
+    total=history.length; safe=history.filter(q=>q.label==='SAFE').length;
+    attack=history.filter(q=>q.label==='ATTACK').length;
+    highRisk=history.filter(q=>q.score>=0.8 && q.label==='ATTACK').length;
+    sumScore=history.reduce((a,b)=>a+b.score,0);
+    totalEl.innerText=total; safeEl.innerText=safe; attackEl.innerText=attack; highRiskEl.innerText=highRisk; avgScoreEl.innerText=(sumScore/total||0).toFixed(2);
+    pieChart.data.datasets[0].data=[safe,attack]; pieChart.update();
+}
+
+document.getElementById('exportCSV').addEventListener('click',()=>{
+    if(history.length===0){ showToast('No history to export!',true); return; }
+    let csv='Query,Label,Score,Action\n';
+    history.forEach(q=>{ csv+=`"${q.query.replace(/"/g,'""')}",${q.label},${q.score.toFixed(2)},${q.action}\n`; });
+    const blob=new Blob([csv],{type:'text/csv'}); const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download='query_history.csv'; a.click(); URL.revokeObjectURL(url);
+});
+
+document.getElementById('clearHistory').addEventListener('click',()=>{
+    resultDiv.innerHTML=''; history.length=0; total=safe=attack=highRisk=sumScore=0;
+    totalEl.innerText=total; safeEl.innerText=safe; attackEl.innerText=attack; highRiskEl.innerText=highRisk; avgScoreEl.innerText='0.00';
+    pieChart.data.datasets[0].data=[safe,attack]; pieChart.update();
+    barChart.data.labels=[]; barChart.data.datasets[0].data=[]; barChart.update();
+    lineChart.data.labels=[]; lineChart.data.datasets[0].data=[]; lineChart.update();
+    showToast('History cleared!');
+});
+
+
+async function pollBackend(){
+    try{
+    const resp=await fetch('/get_logs');
+const logs=await resp.json(); logs.forEach(log=>{
+if(!history.some(h=>h.ts===log.ts)) processQuery(log.query);
+        });
+    }catch(err){}
+}
+setInterval(pollBackend,3000);
+</script>
+</body>
+</html>
